@@ -1,0 +1,19 @@
+
+
+services:
+  gitlab:
+    # image: gitlab/gitlab-ce:latest
+    image: gitlab/gitlab-ee:16.11.10-ee.0
+    restart: always
+    hostname: 'gitlab.example.com'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        gitlab_rails['gitlab_shell_ssh_port'] = 2425
+    ports:
+      - '4001:80'
+      - '444:443'
+      - '2425:22'
+    volumes:
+      - './gitlab/config:/etc/gitlab'
+      - './gitlab/logs:/var/log/gitlab'
+      - './gitlab/data:/var/opt/gitlab'
