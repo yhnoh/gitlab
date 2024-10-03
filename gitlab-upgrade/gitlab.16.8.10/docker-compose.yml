@@ -1,7 +1,6 @@
 
 services:
   gitlab:
-    # image: gitlab/gitlab-ce:latest
     image: gitlab/gitlab-ee:16.8.10-ee.0
     restart: always
     hostname: 'gitlab.example.com'

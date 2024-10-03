@@ -1,6 +1,100 @@
+- Gitlab 업그레이드 시 중단 시간을 최소화하기
+
+- 운영되고 있는 Gitlab을 업그레이드 할 때 발생할 수 있는 문제점
+  - Gitlab 설치된 서버 OS가 노후화되어 있기 때문에, 서버 OS를 업그레이드를 해야하며 해당 시간 동안 Gitlab을 이용할 수 없다.
+  - Gitlab 업그레이드 도중에는 배치 시스템 운영이 불가하다.
+    - Jenkins를 이용하여 배치를 운영중인데, Jenkins 파이프라인 소스는 Gitlab에 존재하기 때문에 Gitlab이 업그레이드 되는 동안에는 배치 시스템 운영이 불가하다.
+  - Gitlab을 업그레이드 하는 도중 어떠한 문제가 발생할지 모르는데, 실제 운영되고 있는 Gitlab을 업그레이드 하기에는 리스크가 너무 크다.
+
+### 기본 계획
+#### 1. Gitlab을 어느 버전까지 업그레이드할지 정한다.
+- Gitlab을 특정 버전대 별로 순차적으로 버전 업그레이드를 진행해야한다.
+- 예를 들어서 16.11.10 -> 17.4.1 버전으로 업그레이드 하기 위해서는 16.11.10 버전을 17.3.4 버전 업그레이드 이후에 17.4.1 버전으로 업그레이드가 가능하다.
+- Gtlab 업그레이드 경로는 [Gitlab > Upgrade Path Tool](https://gitlab-com.gitlab.io/support/toolbox/upgrade-path/) 링크를 통해서 확인이 가능하다.
+
+#### 2. 기존 서버에 존재하는 Gitlab을 백업한 이후 새로운 서버에 업로드 한다.
+- 기존 서버에 존재하는 Gitlab 데이터를 백업한다.
+```sh
+## 백업 명령어
+## Docker에 의해 마운트된 Volume에서 확인이 가능하며, 원본 경로는 /var/opt/gitlab/backups 이다.
+docker exec -it <container name> gitlab-backup create
+```
+- 백업된 데이터는 sftp 명령어를 이용하여 새로운 서버에 업로드한다.
+
+> [Gitlab Backup](https://docs.gitlab.com/ee/install/docker/backup_restore.html)
+
+#### 3. 새로운 서버에 Gitlab 설치를 하는데, 기존 서버의 Gitlab과 동일한 버전을 설치한 이후 복구한다.
+
+- 새로운 서버에 기존 Gitlab 서버와 동일한 버전의 Gitlab을 설치한다.
+  - 위 작업을 진행하는 이유는 백업을 복구 시킬때, 기존 환경과 일치해야하기 때문에 기존 버전과 동일한 버전을 설치한다.
+  ```yaml
+  services:
+  gitlab:
+    image: gitlab/gitlab-ee:16.8.10-ee.0
+    restart: always
+    hostname: 'gitlab.example.com'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        gitlab_rails['gitlab_shell_ssh_port'] = 2424
+    ports:
+      - '4000:80'
+      - '443:443'
+      - '2424:22'
+    volumes:
+      - './gitlab/config:/etc/gitlab'
+      - './gitlab/logs:/var/log/gitlab'
+      - './gitlab/data:/var/opt/gitlab'
+  ```
+- 업로드된 백업 파일을 `/var/opt/gitlab/backups/`에 이동시킨 이후에, 권한을 부여한다.
+```sh
+sudo cp 11493107454_2018_04_25_10.6.4-ce_gitlab_backup.tar /var/opt/gitlab/backups/
+docker exec -it <container name> chown git:root /var/opt/gitlab/backups/11493107454_2018_04_25_10.6.4-ce_gitlab_backup.tar
+```
+- Gitlab에서 사용중인 일부 프로세스를 중지시킨 이후에 상태 확인을 한다.
+```sh
+docker exec -it <container name> gitlab-ctl stop puma
+docker exec -it <container name> gitlab-ctl stop sidekiq
+
+docker exec -it <container name> gitlab-ctl status 
+```
+- 백업된 파일을 복구 시킨다.
+```sh
+### 백업 파일명에서 _gitlab_backup.tar는 생략한다.
+docker exec -it <container name> gitlab-backup restore BACKUP=11493107454_2018_04_25_10.6.4-ce
+```
+- Gitlab 재시작 이후에 상태를 확인한다.
+```sh
+docker exec -it <container name> gitlab-ctl restart
+docker exec -it <container name> gitlab-ctl status
+docker exec -it <name of container> gitlab-rake gitlab:check SANITIZE=true
+```
+
+> [Gitlab > Restore](https://docs.gitlab.com/ee/administration/backup_restore/restore_gitlab.html#certain-gitlab-configuration-must-match-the-original-backed-up-environment)
+
+#### 4. 새로운 서버의 Gitlab을 업그레이드한다. 
+- `docker-compose.yml`파일의 이미지를 수정하고 저장한뒤 해당 명령어를 수행한다.
+```sh
+docker compose pull
+docker compose up -d
+```
+
+> [Gitlab > Upgrade](https://docs.gitlab.com/ee/install/docker/upgrade.html)
+
+#### 5. 업그레이드를 진행한 이후에 테스트를 진행한다.
+
+
+
+3. 업그레이드 이후 테스트를 진행한다.
+   - https://docs.gitlab.com/ee/update/plan_your_upgrade.html#pre-upgrade-and-post-upgrade-checks
+4. DNS 정보를 변경한다.
+
+ 
+
+
+
 1. 이전 버전의 깃랩을 백업한다.
 `gitlab-backup create`
-2. 서버를 새로 띄우고 동일 버전을 업데이트 한다.
+1. 서버를 새로 띄우고 동일 버전을 업데이트 한다.
 
 `gitlab-ctl status`
 
