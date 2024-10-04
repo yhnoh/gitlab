@@ -1,18 +1,26 @@
-- Gitlab 업그레이드 시 중단 시간을 최소화하기
+## 1. Gitlab 업그레이드
+- 현재 사내에서는 Docker와 EC2, AWS ELB를 활용하여 Gitlab을 사용중이다.
+- Gitlab을 업그레이드 하기 위하여 살펴 보았는데 몇가지 문제가 존재하였다.
+  - 서버 OS의 노후화
+  - Gitlab 업그레이드 진행 도중 downtime(중단 시간) 발생
+  - 실제 운영 Gitlab을 업그레이드시 리스크 존재
+- 위 문제 모두 Gitlab을 특정 시간동안 이용할 수 없다는 문제가 있고, 그 시간이 몇 분이 아닌 적어도 30분 이상은 소요된다는 문제가 있다.
+  - 가장 큰 문제는 현재 Jenkins를 이용하여 배치 작업을 진행중인데 Gitlab을 업그레이드 하는 동안에는 배치 운영이 불가하다.
+- 위 문제를 해결하기 위해서 Gitlab 업그레이드 시 중단 시간을 최소화할 필요성을 느껴 이 글을 작성하게 되었다.
+ 
+## 2. Gitlab 업그레이드 중단 시간 최소화 하기
+- 기본적인 계획은 개발자가 Gitlab을 이용하지 않는 시간대에 백업을 하여, 새로운 서버에 업로드 및 복구 작업을 진행한다.
+- 이후 AWS ELB의 대상 그룹을 기존 서버에서 새로운 서버로 변경하여 Gitlab의 중단 시간을 최소화 한다.
+  - 마치 무중단 배포를 수동으로 한다고 생각하면 된다.
 
-- 운영되고 있는 Gitlab을 업그레이드 할 때 발생할 수 있는 문제점
-  - Gitlab 설치된 서버 OS가 노후화되어 있기 때문에, 서버 OS를 업그레이드를 해야하며 해당 시간 동안 Gitlab을 이용할 수 없다.
-  - Gitlab 업그레이드 도중에는 배치 시스템 운영이 불가하다.
-    - Jenkins를 이용하여 배치를 운영중인데, Jenkins 파이프라인 소스는 Gitlab에 존재하기 때문에 Gitlab이 업그레이드 되는 동안에는 배치 시스템 운영이 불가하다.
-  - Gitlab을 업그레이드 하는 도중 어떠한 문제가 발생할지 모르는데, 실제 운영되고 있는 Gitlab을 업그레이드 하기에는 리스크가 너무 크다.
+### 2.1. Gitlab 업그레이드 계획
 
-### 기본 계획
-#### 1. Gitlab을 어느 버전까지 업그레이드할지 정한다.
+#### 2.1.1 Gitlab을 어느 버전까지 업그레이드할지 정한다.
 - Gitlab을 특정 버전대 별로 순차적으로 버전 업그레이드를 진행해야한다.
 - 예를 들어서 16.11.10 -> 17.4.1 버전으로 업그레이드 하기 위해서는 16.11.10 버전을 17.3.4 버전 업그레이드 이후에 17.4.1 버전으로 업그레이드가 가능하다.
 - Gtlab 업그레이드 경로는 [Gitlab > Upgrade Path Tool](https://gitlab-com.gitlab.io/support/toolbox/upgrade-path/) 링크를 통해서 확인이 가능하다.
 
-#### 2. 기존 서버에 존재하는 Gitlab을 백업한 이후 새로운 서버에 업로드 한다.
+#### 2.1.2 기존 서버에 존재하는 Gitlab을 백업한 이후 새로운 서버에 업로드 한다.
 - 기존 서버에 존재하는 Gitlab 데이터를 백업한다.
 ```sh
 ## 백업 명령어
@@ -21,9 +29,9 @@ docker exec -it <container name> gitlab-backup create
 ```
 - 백업된 데이터는 sftp 명령어를 이용하여 새로운 서버에 업로드한다.
 
-> [Gitlab Backup](https://docs.gitlab.com/ee/install/docker/backup_restore.html)
+> [Gitlab > Backup](https://docs.gitlab.com/ee/install/docker/backup_restore.html)
 
-#### 3. 새로운 서버에 Gitlab 설치를 하는데, 기존 서버의 Gitlab과 동일한 버전을 설치한 이후 복구한다.
+#### 2.1.3 새로운 서버에 Gitlab 설치를 하는데, 기존 서버의 Gitlab과 동일한 버전을 설치한 이후 복구한다.
 
 - 새로운 서버에 기존 Gitlab 서버와 동일한 버전의 Gitlab을 설치한다.
   - 위 작업을 진행하는 이유는 백업을 복구 시킬때, 기존 환경과 일치해야하기 때문에 기존 버전과 동일한 버전을 설치한다.
@@ -71,7 +79,7 @@ docker exec -it <name of container> gitlab-rake gitlab:check SANITIZE=true
 
 > [Gitlab > Restore](https://docs.gitlab.com/ee/administration/backup_restore/restore_gitlab.html#certain-gitlab-configuration-must-match-the-original-backed-up-environment)
 
-#### 4. 새로운 서버의 Gitlab을 업그레이드한다. 
+#### 2.1.4. 새로운 서버의 Gitlab을 업그레이드한다. 
 - `docker-compose.yml`파일의 이미지를 수정하고 저장한뒤 해당 명령어를 수행한다.
 ```sh
 docker compose pull
@@ -80,26 +88,24 @@ docker compose up -d
 
 > [Gitlab > Upgrade](https://docs.gitlab.com/ee/install/docker/upgrade.html)
 
-#### 5. 업그레이드를 진행한 이후에 테스트를 진행한다.
+#### 2.1.5. 업그레이드를 진행한 이후에 테스트를 진행한 이후 AWS ELB 대상 그룹을 변경한다.
 
+- 테스트 리스트
+  - 로그인 및 유저 리스트 확인
+  - Git 프로젝트 확인
+    - 리스트
+    - 상세보기
+  - issue와 merge request 접근 가능 여부 확인
+  - clone, pull 및 push 가능 여부 확인
+- 테스트가 완료된 이후에는 AWS ELB 대상 그룹을 변경하여 중단 시간을 최소화 한다.
 
+> [Gitlab > post-upgrade checks](https://docs.gitlab.com/ee/update/plan_your_upgrade.html#pre-upgrade-and-post-upgrade-checks)
 
-3. 업그레이드 이후 테스트를 진행한다.
-   - https://docs.gitlab.com/ee/update/plan_your_upgrade.html#pre-upgrade-and-post-upgrade-checks
-4. DNS 정보를 변경한다.
+<br/> 
+<br/> 
 
- 
-
-
-
-1. 이전 버전의 깃랩을 백업한다.
-`gitlab-backup create`
-1. 서버를 새로 띄우고 동일 버전을 업데이트 한다.
-
-`gitlab-ctl status`
-
-> [](https://docs.gitlab.com/ee/administration/backup_restore/restore_gitlab.html)
-> [Gitlab Backup](https://docs.gitlab.com/ee/install/docker/backup_restore.html)
-> [Gitlab Health Check](https://docs.gitlab.com/ee/administration/monitoring/health_check.html)
-> [Gitlab Upgrade Path](https://gitlab-com.gitlab.io/support/toolbox/upgrade-path/)
-> https://archives.docs.gitlab.com/16.11/ee/install/docker.html
+> [Gitlab > Upgrade Path Tool](https://gitlab-com.gitlab.io/support/toolbox/upgrade-path/) <br/> 
+> [Gitlab > Backup](https://docs.gitlab.com/ee/install/docker/backup_restore.html) <br/> 
+> [Gitlab > Restore](https://docs.gitlab.com/ee/administration/backup_restore/restore_gitlab.html#certain-gitlab-configuration-must-match-the-original-backed-up-environment)  <br/> 
+> [Gitlab > Upgrade](https://docs.gitlab.com/ee/install/docker/upgrade.html)  <br/> 
+> [Gitlab > post-upgrade checks](https://docs.gitlab.com/ee/update/plan_your_upgrade.html#pre-upgrade-and-post-upgrade-checks)  <br/> 
